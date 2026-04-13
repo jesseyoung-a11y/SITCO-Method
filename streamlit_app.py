@@ -71,7 +71,7 @@ st.markdown("""
         margin-bottom: 6px;
     }
     .metric-value {
-        font-size: 32px;
+        font-size: 28px;
         font-weight: 700;
         color: #1D4ED8;
     }
@@ -104,7 +104,7 @@ with left_col:
 
     vx_4h = st.selectbox(
         "4H VX/VIX status",
-        ["Above cloud", "Below cloud"]
+        ["Above cloud", "Mixed / inside cloud", "Below cloud"]
     )
 
     vx_15m = st.selectbox(
@@ -166,12 +166,28 @@ def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
         return "B", "Tradable, but less supported", "15m VX/VIX is helping the immediate short idea, but the broader 4H regime is not fully aligned. SOX is weak and ES is rejecting well, so the trade is still tradable.", 75
 
     if (
+        vx_4h == "Mixed / inside cloud"
+        and vx_15m == "Above cloud"
+        and sox_status == "Weak"
+        and es_rejection == "Rejecting key level / trend"
+    ):
+        return "B", "Tradable, neutral higher timeframe regime", "4H VX/VIX is mixed inside the cloud, so the broader regime is not fully clear. However, 15m VX/VIX is above cloud, SOX is weak, and ES is rejecting cleanly, which makes the setup tradable but not high quality.", 70
+
+    if (
         vx_4h == "Above cloud"
         and vx_15m == "Below cloud"
         and sox_status == "Weak"
         and es_rejection == "Rejecting key level / trend"
     ):
         return "C", "Possible, but trigger is weak", "The broader 4H regime supports the short thesis, but 15m VX/VIX is below cloud, so the immediate trigger is missing. SOX is weak and ES is rejecting, but follow-through may be less reliable.", 62
+
+    if (
+        vx_4h == "Mixed / inside cloud"
+        and vx_15m in ["Mixed / inside cloud", "Rolling over / turning up", "Below cloud"]
+        and sox_status == "Weak"
+        and es_rejection == "Rejecting key level / trend"
+    ):
+        return "C", "Possible, but broader regime is unclear", "4H VX/VIX is mixed inside the cloud, so the higher timeframe regime is not clearly supporting the short. The setup may still work, but cleaner alignment is missing.", 58
 
     if (
         vx_4h == "Below cloud"
@@ -187,6 +203,9 @@ def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
     if vx_4h == "Above cloud":
         score += 15
         reasons.append("4H VX/VIX supports the broader short regime.")
+    elif vx_4h == "Mixed / inside cloud":
+        score += 7
+        reasons.append("4H VX/VIX is mixed inside the cloud, so the broader regime is neutral.")
     else:
         reasons.append("4H VX/VIX does not strongly support the broader short regime.")
 
@@ -234,9 +253,62 @@ def take_decision(grade, confidence):
     return "No-Take", "This setup does not have enough alignment to justify a short."
 
 
+def management_playbook(grade):
+    if grade == "A+":
+        return {
+            "Suggested Size": "Full Size",
+            "Trade Type": "High-conviction trend short",
+            "Patience Level": "High",
+            "Tolerance for Chop": "High",
+            "Management Style": "Be patient and let the trade work. Avoid reacting to normal noise too early.",
+            "Exit Playbook": "Stay in until there is a true direction change. A meaningful loss of 15m VX/VIX strength or ES reclaiming the rejection area is a stronger exit signal.",
+            "Breakeven Rule": "Do not move to breakeven too early. Let price get about +10 points in your favor and hold before moving stop to entry."
+        }
+    if grade == "A":
+        return {
+            "Suggested Size": "Near Full Size",
+            "Trade Type": "Strong short setup",
+            "Patience Level": "Medium-High",
+            "Tolerance for Chop": "Medium",
+            "Management Style": "Give the trade room, but be more alert than with A+ setups.",
+            "Exit Playbook": "Hold for follow-through, but tighten attention if 15m VX/VIX loses support or ES starts reclaiming the rejected level.",
+            "Breakeven Rule": "Move to breakeven after solid follow-through, not immediately on the first small push."
+        }
+    if grade == "B":
+        return {
+            "Suggested Size": "Size Down",
+            "Trade Type": "Tactical short / quick scalp",
+            "Patience Level": "Medium-Low",
+            "Tolerance for Chop": "Low",
+            "Management Style": "Treat this as a more tactical trade. If price stalls and does not move in your favor, tighten risk faster.",
+            "Exit Playbook": "Take quicker trims. If VX starts to weaken even slightly or ES cannot extend lower, reduce or exit.",
+            "Breakeven Rule": "Move stops closer sooner than an A setup. Do not give it too much room if momentum is not there."
+        }
+    if grade == "C":
+        return {
+            "Suggested Size": "Very Small Size or Pass",
+            "Trade Type": "Scalp only",
+            "Patience Level": "Low",
+            "Tolerance for Chop": "Very Low",
+            "Management Style": "Little tolerance for hesitation. This is not a trade to sit through if it does not move quickly.",
+            "Exit Playbook": "Exit fast if there is no immediate downside response. Treat it like a scalp, not a swing idea.",
+            "Breakeven Rule": "Use tight management. Consider getting risk reduced quickly if price hesitates."
+        }
+    return {
+        "Suggested Size": "No Size",
+        "Trade Type": "No trade",
+        "Patience Level": "None",
+        "Tolerance for Chop": "None",
+        "Management Style": "Stand aside.",
+        "Exit Playbook": "No trade should be taken.",
+        "Breakeven Rule": "Not applicable."
+    }
+
+
 if st.button("Grade Trade Setup"):
     grade, verdict, explanation, confidence = grade_trade(vx_4h, vx_15m, sox_status, es_rejection)
     take_signal, take_reason = take_decision(grade, confidence)
+    playbook = management_playbook(grade)
 
     st.session_state.current_log_entry = {
         "4H VX/VIX": vx_4h,
@@ -246,6 +318,8 @@ if st.button("Grade Trade Setup"):
         "Grade": grade,
         "Confidence": confidence,
         "Take Signal": take_signal,
+        "Suggested Size": playbook["Suggested Size"],
+        "Trade Type": playbook["Trade Type"],
         "Journal Notes": journal_notes
     }
 
@@ -261,7 +335,7 @@ if st.button("Grade Trade Setup"):
         unsafe_allow_html=True
     )
 
-    m1, m2, m3 = st.columns(3)
+    m1, m2, m3, m4 = st.columns(4)
 
     with m1:
         st.markdown(
@@ -290,7 +364,18 @@ if st.button("Grade Trade Setup"):
             f"""
             <div class="metric-card">
                 <div class="metric-title">Take / No-Take</div>
-                <div class="metric-value" style="font-size:22px;">{take_signal}</div>
+                <div class="metric-value" style="font-size:20px;">{take_signal}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with m4:
+        st.markdown(
+            f"""
+            <div class="metric-card">
+                <div class="metric-title">Suggested Size</div>
+                <div class="metric-value" style="font-size:20px;">{playbook["Suggested Size"]}</div>
             </div>
             """,
             unsafe_allow_html=True
@@ -325,6 +410,38 @@ if st.button("Grade Trade Setup"):
         """,
         unsafe_allow_html=True
     )
+
+    p1, p2 = st.columns(2)
+
+    with p1:
+        st.markdown(
+            f"""
+            <div class="summary-box">
+                <div class="summary-title">Management Playbook</div>
+                <div class="summary-text">
+                    <strong>Trade Type:</strong> {playbook["Trade Type"]}<br><br>
+                    <strong>Management Style:</strong> {playbook["Management Style"]}<br><br>
+                    <strong>Patience Level:</strong> {playbook["Patience Level"]}<br><br>
+                    <strong>Tolerance for Chop:</strong> {playbook["Tolerance for Chop"]}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with p2:
+        st.markdown(
+            f"""
+            <div class="summary-box">
+                <div class="summary-title">Exit and Risk Playbook</div>
+                <div class="summary-text">
+                    <strong>Exit Playbook:</strong> {playbook["Exit Playbook"]}<br><br>
+                    <strong>Breakeven Rule:</strong> {playbook["Breakeven Rule"]}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 if "current_log_entry" in st.session_state:
     col1, col2 = st.columns(2)
