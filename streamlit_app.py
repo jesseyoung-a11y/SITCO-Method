@@ -129,28 +129,18 @@ with right_col:
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("Screenshot Checklist")
-s1 = st.checkbox("4H VX/VIX screenshot captured")
-s2 = st.checkbox("15m VX/VIX screenshot captured")
-s3 = st.checkbox("SOX screenshot captured")
-s4 = st.checkbox("ES setup screenshot captured")
-st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("Trade Journal Notes")
 journal_notes = st.text_area("Write your trade notes here", height=150)
 st.markdown('</div>', unsafe_allow_html=True)
 
 
 def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
-    # Hard fail conditions
     if sox_status == "Strong":
         return "F", "Avoid short", "SOX is strong, which does not confirm the short thesis.", 15
 
     if es_rejection in ["Above trend and holding", "Forced / anticipatory short"]:
         return "F", "Avoid short", "ES is not giving a clean rejection. The short looks forced or price is still holding above trend.", 10
 
-    # A+
     if (
         vx_4h == "Above cloud"
         and vx_15m == "Above cloud"
@@ -159,7 +149,6 @@ def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
     ):
         return "A+", "Best short environment", "4H VX/VIX supports the broader short regime, 15m VX/VIX confirms immediate volatility pressure, SOX is weak, and ES is rejecting a key level cleanly.", 98
 
-    # A
     if (
         vx_4h == "Above cloud"
         and vx_15m in ["Mixed / inside cloud", "Rolling over / turning up"]
@@ -168,7 +157,6 @@ def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
     ):
         return "A", "Strong short setup", "4H VX/VIX supports the short thesis, 15m VX/VIX is not perfect but still acceptable, SOX is weak, and ES is rejecting a key level.", 88
 
-    # B
     if (
         vx_4h == "Below cloud"
         and vx_15m == "Above cloud"
@@ -177,7 +165,6 @@ def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
     ):
         return "B", "Tradable, but less supported", "15m VX/VIX is helping the immediate short idea, but the broader 4H regime is not fully aligned. SOX is weak and ES is rejecting well, so the trade is still tradable.", 75
 
-    # C - your explicit rule
     if (
         vx_4h == "Above cloud"
         and vx_15m == "Below cloud"
@@ -186,7 +173,6 @@ def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
     ):
         return "C", "Possible, but trigger is weak", "The broader 4H regime supports the short thesis, but 15m VX/VIX is below cloud, so the immediate trigger is missing. SOX is weak and ES is rejecting, but follow-through may be less reliable.", 62
 
-    # C
     if (
         vx_4h == "Below cloud"
         and vx_15m == "Below cloud"
@@ -195,7 +181,6 @@ def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
     ):
         return "C", "Possible, but weaker short", "Both 4H and 15m VX/VIX are below cloud, so volatility is not strongly supporting the short thesis. SOX is weak and ES is rejecting, but follow-through may be slower or less reliable.", 55
 
-    # Mixed / fallback logic
     reasons = []
     score = 50
 
@@ -252,6 +237,17 @@ def take_decision(grade, confidence):
 if st.button("Grade Trade Setup"):
     grade, verdict, explanation, confidence = grade_trade(vx_4h, vx_15m, sox_status, es_rejection)
     take_signal, take_reason = take_decision(grade, confidence)
+
+    st.session_state.current_log_entry = {
+        "4H VX/VIX": vx_4h,
+        "15m VX/VIX": vx_15m,
+        "SOX": sox_status,
+        "ES Rejection": es_rejection,
+        "Grade": grade,
+        "Confidence": confidence,
+        "Take Signal": take_signal,
+        "Journal Notes": journal_notes
+    }
 
     st.markdown("---")
 
@@ -330,23 +326,24 @@ if st.button("Grade Trade Setup"):
         unsafe_allow_html=True
     )
 
-    checklist_complete = all([s1, s2, s3, s4])
+if "current_log_entry" in st.session_state:
+    col1, col2 = st.columns(2)
 
-    log_entry = {
-        "4H VX/VIX": vx_4h,
-        "15m VX/VIX": vx_15m,
-        "SOX": sox_status,
-        "ES Rejection": es_rejection,
-        "Grade": grade,
-        "Confidence": confidence,
-        "Take Signal": take_signal,
-        "Checklist Complete": "Yes" if checklist_complete else "No",
-        "Journal Notes": journal_notes
-    }
+    with col1:
+        if st.button("Save Trade Log"):
+            st.session_state.trade_log.append(st.session_state.current_log_entry.copy())
+            st.success("Trade log saved.")
 
-    if st.button("Save Trade Log"):
-        st.session_state.trade_log.append(log_entry)
-        st.success("Trade log saved.")
+    with col2:
+        if st.session_state.trade_log:
+            log_df = pd.DataFrame(st.session_state.trade_log)
+            csv = log_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Export Trade Log to CSV",
+                data=csv,
+                file_name="sitco_trade_log.csv",
+                mime="text/csv"
+            )
 
 if st.session_state.trade_log:
     st.markdown("### Saved Trade Log")
