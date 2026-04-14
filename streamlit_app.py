@@ -1,468 +1,343 @@
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
+
 import streamlit as st
-import pandas as pd
-
-st.set_page_config(page_title="SITCO Method", layout="wide")
-
-if "trade_log" not in st.session_state:
-    st.session_state.trade_log = []
-
-st.markdown("""
-<style>
-    .stApp {
-        background-color: #F5F7FA;
-        color: #1F2937;
-    }
-    .main-title {
-        font-size: 42px;
-        font-weight: 700;
-        color: #1F2937;
-        margin-bottom: 6px;
-    }
-    .subtitle {
-        font-size: 18px;
-        color: #4B5563;
-        margin-bottom: 24px;
-    }
-    .card {
-        background-color: #FFFFFF;
-        padding: 20px;
-        border-radius: 16px;
-        box-shadow: 0 4px 14px rgba(31, 41, 55, 0.08);
-        margin-bottom: 20px;
-    }
-    .summary-box {
-        background-color: #FFFFFF;
-        padding: 22px;
-        border-left: 6px solid #1D4ED8;
-        border-radius: 14px;
-        box-shadow: 0 4px 12px rgba(31, 41, 55, 0.08);
-        margin-bottom: 20px;
-    }
-    .grade-box {
-        background-color: #DBEAFE;
-        padding: 22px;
-        border-left: 6px solid #1E3A8A;
-        border-radius: 14px;
-        box-shadow: 0 4px 12px rgba(31, 41, 55, 0.08);
-        margin-bottom: 20px;
-    }
-    .summary-title {
-        font-size: 22px;
-        font-weight: 700;
-        color: #1F2937;
-        margin-bottom: 8px;
-    }
-    .summary-text {
-        font-size: 16px;
-        color: #374151;
-        line-height: 1.6;
-    }
-    .metric-card {
-        background-color: #FFFFFF;
-        padding: 16px;
-        border-radius: 14px;
-        box-shadow: 0 4px 12px rgba(31, 41, 55, 0.08);
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .metric-title {
-        font-size: 16px;
-        color: #6B7280;
-        margin-bottom: 6px;
-    }
-    .metric-value {
-        font-size: 28px;
-        font-weight: 700;
-        color: #1D4ED8;
-    }
-    div.stButton > button {
-        background-color: #1D4ED8;
-        color: white;
-        border: none;
-        border-radius: 10px;
-        padding: 0.7em 1.4em;
-        font-weight: 600;
-    }
-    div.stButton > button:hover {
-        background-color: #1E3A8A;
-        color: white;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="main-title">SITCO Method</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="subtitle">Trade grading dashboard for ES short setups using VX/VIX, SOX, and ES rejection quality.</div>',
-    unsafe_allow_html=True
-)
-
-left_col, right_col = st.columns(2)
-
-with left_col:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Regime and Trigger Inputs")
-
-    vx_4h = st.selectbox(
-        "4H VX/VIX status",
-        ["Above cloud", "Mixed / inside cloud", "Below cloud"]
-    )
-
-    vx_15m = st.selectbox(
-        "15m VX/VIX status",
-        ["Above cloud", "Mixed / inside cloud", "Rolling over / turning up", "Below cloud"]
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with right_col:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Confirmation and Entry Inputs")
-
-    sox_status = st.selectbox(
-        "SOX status",
-        ["Weak", "Mixed", "Strong"]
-    )
-
-    es_rejection = st.selectbox(
-        "ES rejection quality",
-        ["Rejecting key level / trend", "Chopping at level", "Above trend and holding", "Forced / anticipatory short"]
-    )
-    st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("Trade Journal Notes")
-journal_notes = st.text_area("Write your trade notes here", height=150)
-st.markdown('</div>', unsafe_allow_html=True)
 
 
-def grade_trade(vx_4h, vx_15m, sox_status, es_rejection):
-    if sox_status == "Strong":
-        return "F", "Avoid short", "SOX is strong, which does not confirm the short thesis.", 15
+GRADE_COLORS = {
+    "A+": "#16a34a",  # green
+    "A": "#16a34a",   # green
+    "B": "#f59e0b",   # orange
+    "C": "#dc2626",   # red
+    "D": "#dc2626",   # red
+    "F": "#dc2626",   # red
+}
 
-    if es_rejection in ["Above trend and holding", "Forced / anticipatory short"]:
-        return "F", "Avoid short", "ES is not giving a clean rejection. The short looks forced or price is still holding above trend.", 10
+GRADE_ORDER = ["F", "D", "C", "B", "A", "A+"]
 
-    if (
-        vx_4h == "Above cloud"
-        and vx_15m == "Above cloud"
-        and sox_status == "Weak"
-        and es_rejection == "Rejecting key level / trend"
-    ):
-        return "A+", "Best short environment", "4H VX/VIX supports the broader short regime, 15m VX/VIX confirms immediate volatility pressure, SOX is weak, and ES is rejecting a key level cleanly.", 98
 
-    if (
-        vx_4h == "Above cloud"
-        and vx_15m in ["Mixed / inside cloud", "Rolling over / turning up"]
-        and sox_status == "Weak"
-        and es_rejection == "Rejecting key level / trend"
-    ):
-        return "A", "Strong short setup", "4H VX/VIX supports the short thesis, 15m VX/VIX is not perfect but still acceptable, SOX is weak, and ES is rejecting a key level.", 88
+@dataclass
+class TradeInputs:
+    vx_4h_above_cloud: bool
+    vx_15m_above_cloud: bool
+    sox_weak: bool
+    sox_strong: bool
+    es_rejecting_trend: bool
+    es_holding_above_trend: bool
+    price_stalling: bool
+    vx_flipping_against_thesis: bool
 
-    if (
-        vx_4h == "Below cloud"
-        and vx_15m == "Above cloud"
-        and sox_status == "Weak"
-        and es_rejection == "Rejecting key level / trend"
-    ):
-        return "B", "Tradable, but less supported", "15m VX/VIX is helping the immediate short idea, but the broader 4H regime is not fully aligned. SOX is weak and ES is rejecting well, so the trade is still tradable.", 75
 
-    if (
-        vx_4h == "Mixed / inside cloud"
-        and vx_15m == "Above cloud"
-        and sox_status == "Weak"
-        and es_rejection == "Rejecting key level / trend"
-    ):
-        return "B", "Tradable, neutral higher timeframe regime", "4H VX/VIX is mixed inside the cloud, so the broader regime is not fully clear. However, 15m VX/VIX is above cloud, SOX is weak, and ES is rejecting cleanly, which makes the setup tradable but not high quality.", 70
+@dataclass
+class GradeOutput:
+    grade: str
+    score: int
+    summary: str
+    stop_plan: str
+    management: List[str]
 
-    if (
-        vx_4h == "Above cloud"
-        and vx_15m == "Below cloud"
-        and sox_status == "Weak"
-        and es_rejection == "Rejecting key level / trend"
-    ):
-        return "C", "Possible, but trigger is weak", "The broader 4H regime supports the short thesis, but 15m VX/VIX is below cloud, so the immediate trigger is missing. SOX is weak and ES is rejecting, but follow-through may be less reliable.", 62
 
-    if (
-        vx_4h == "Mixed / inside cloud"
-        and vx_15m in ["Mixed / inside cloud", "Rolling over / turning up", "Below cloud"]
-        and sox_status == "Weak"
-        and es_rejection == "Rejecting key level / trend"
-    ):
-        return "C", "Possible, but broader regime is unclear", "4H VX/VIX is mixed inside the cloud, so the higher timeframe regime is not clearly supporting the short. The setup may still work, but cleaner alignment is missing.", 58
+SHORT_PLAYBOOK: Dict[str, Dict] = {
+    "A+": {
+        "summary": "Give room, trust thesis, exit early only if confirmation truly breaks.",
+        "stop_plan": "5-point max stop, normal size.",
+        "management": [
+            "Full size.",
+            "5-point hard stop.",
+            "Thesis-failed early exit.",
+            "Allow normal noise.",
+            "Can hold through minor pops if SOX / VX still agree.",
+        ],
+    },
+    "A": {
+        "summary": "Needs to work reasonably soon.",
+        "stop_plan": "4-point max stop, moderate size.",
+        "management": [
+            "Moderate size or slightly reduced size.",
+            "4-point hard stop most of the time.",
+            "Needs decent follow-through.",
+            "Less tolerance for chop than A+.",
+            "If no downside progress soon, start tightening mentally.",
+        ],
+    },
+    "B": {
+        "summary": "Needs to work almost immediately, or reduce risk.",
+        "stop_plan": "4-point max stop, sometimes 5 only if structure truly needs it.",
+        "management": [
+            "Reduced size.",
+            "Smaller size + faster proof requirement.",
+            "Much faster management.",
+            "If price stalls or VX flips, scratch, cut partial, or tighten aggressively.",
+            "Do not let a B trade become a full A+ loss.",
+        ],
+    },
+    "C": {
+        "summary": "Weak short setup. Usually pass.",
+        "stop_plan": "No trade preferred.",
+        "management": [
+            "Usually skip.",
+            "Only consider if multiple factors improve quickly.",
+            "Do not force mediocre shorts.",
+        ],
+    },
+    "D": {
+        "summary": "Poor short setup.",
+        "stop_plan": "Avoid.",
+        "management": [
+            "Do not take.",
+            "Wait for better alignment.",
+        ],
+    },
+    "F": {
+        "summary": "Short thesis is invalid.",
+        "stop_plan": "Do not short.",
+        "management": [
+            "Stand aside or look for long conditions instead.",
+        ],
+    },
+}
 
-    if (
-        vx_4h == "Below cloud"
-        and vx_15m == "Below cloud"
-        and sox_status == "Weak"
-        and es_rejection == "Rejecting key level / trend"
-    ):
-        return "C", "Possible, but weaker short", "Both 4H and 15m VX/VIX are below cloud, so volatility is not strongly supporting the short thesis. SOX is weak and ES is rejecting, but follow-through may be slower or less reliable.", 55
+LONG_PLAYBOOK: Dict[str, Dict] = {
+    "A+": {
+        "summary": "Give room, trust thesis, exit early only if confirmation truly breaks.",
+        "stop_plan": "5-point max stop, normal size.",
+        "management": [
+            "Full size.",
+            "5-point hard stop.",
+            "Thesis-failed early exit.",
+            "Allow normal noise.",
+            "Can hold through minor dips if internals still agree.",
+        ],
+    },
+    "A": {
+        "summary": "Needs to work reasonably soon.",
+        "stop_plan": "4-point max stop, moderate size.",
+        "management": [
+            "Moderate size or slightly reduced size.",
+            "4-point hard stop most of the time.",
+            "Needs decent follow-through.",
+            "Less tolerance for chop than A+.",
+            "If no upside progress soon, start tightening mentally.",
+        ],
+    },
+    "B": {
+        "summary": "Needs to work almost immediately, or reduce risk.",
+        "stop_plan": "4-point max stop, sometimes 5 only if structure truly needs it.",
+        "management": [
+            "Reduced size.",
+            "Smaller size + faster proof requirement.",
+            "Much faster management.",
+            "If price stalls or internals flip, scratch, cut partial, or tighten aggressively.",
+            "Do not let a B trade become a full A+ loss.",
+        ],
+    },
+    "C": {
+        "summary": "Weak long setup. Usually pass.",
+        "stop_plan": "No trade preferred.",
+        "management": [
+            "Usually skip.",
+            "Only consider if multiple factors improve quickly.",
+            "Do not force mediocre longs.",
+        ],
+    },
+    "D": {
+        "summary": "Poor long setup.",
+        "stop_plan": "Avoid.",
+        "management": [
+            "Do not take.",
+            "Wait for better alignment.",
+        ],
+    },
+    "F": {
+        "summary": "Long thesis is invalid.",
+        "stop_plan": "Do not go long.",
+        "management": [
+            "Stand aside or look for short conditions instead.",
+        ],
+    },
+}
 
+
+def clamp_grade(score: int) -> str:
+    if score >= 5:
+        return "A+"
+    if score == 4:
+        return "A"
+    if score == 3:
+        return "B"
+    if score == 2:
+        return "C"
+    if score == 1:
+        return "D"
+    return "F"
+
+
+def score_short_setup(inputs: TradeInputs) -> GradeOutput:
+    score = 0
     reasons = []
-    score = 50
 
-    if vx_4h == "Above cloud":
-        score += 15
-        reasons.append("4H VX/VIX supports the broader short regime.")
-    elif vx_4h == "Mixed / inside cloud":
-        score += 7
-        reasons.append("4H VX/VIX is mixed inside the cloud, so the broader regime is neutral.")
-    else:
-        reasons.append("4H VX/VIX does not strongly support the broader short regime.")
+    if inputs.vx_4h_above_cloud:
+        score += 1
+        reasons.append("4H VX above EMA clouds")
+    if inputs.vx_15m_above_cloud:
+        score += 1
+        reasons.append("15m VX above EMA clouds")
+    if inputs.sox_weak:
+        score += 1
+        reasons.append("SOX weak")
+    if inputs.es_rejecting_trend:
+        score += 2
+        reasons.append("ES rejecting trend")
 
-    if vx_15m == "Above cloud":
-        score += 15
-        reasons.append("15m VX/VIX supports immediate volatility pressure.")
-    elif vx_15m in ["Mixed / inside cloud", "Rolling over / turning up"]:
-        score += 8
-        reasons.append("15m VX/VIX is somewhat supportive, but not fully confirmed.")
-    else:
-        reasons.append("15m VX/VIX is below cloud, so immediate support is weak.")
+    if inputs.sox_strong:
+        score -= 2
+        reasons.append("SOX strong against short thesis")
+    if inputs.es_holding_above_trend:
+        score -= 2
+        reasons.append("ES holding above trend")
+    if inputs.price_stalling:
+        score -= 1
+        reasons.append("Price stalling")
+    if inputs.vx_flipping_against_thesis:
+        score -= 1
+        reasons.append("VX flipping against thesis")
 
-    if sox_status == "Weak":
-        score += 10
-        reasons.append("SOX is weak and confirms downside pressure.")
-    elif sox_status == "Mixed":
-        reasons.append("SOX is mixed and only partially confirms downside.")
+    grade = clamp_grade(max(0, min(score, 5)))
+    pb = SHORT_PLAYBOOK[grade]
+    summary = ", ".join(reasons) if reasons else "No strong short signals yet"
 
-    if es_rejection == "Rejecting key level / trend":
-        score += 10
-        reasons.append("ES is rejecting a key level cleanly.")
-    elif es_rejection == "Chopping at level":
-        reasons.append("ES is chopping instead of rejecting cleanly.")
-
-    if score >= 80:
-        grade = "B"
-        verdict = "Tradable setup"
-    elif score >= 60:
-        grade = "C"
-        verdict = "Caution / weaker setup"
-    else:
-        grade = "F"
-        verdict = "Avoid short"
-
-    return grade, verdict, " ".join(reasons), score
-
-
-def take_decision(grade, confidence):
-    if grade in ["A+", "A"] and confidence >= 85:
-        return "Take", "This setup has strong alignment and meets high-quality short criteria."
-    if grade == "B" and confidence >= 70:
-        return "Conditional Take", "This setup is tradable, but broader alignment is not perfect. Use caution and tighter selectivity."
-    if grade == "C":
-        return "No-Take or Small Size Only", "This setup is weaker. Consider passing unless other strong context supports it."
-    return "No-Take", "This setup does not have enough alignment to justify a short."
-
-
-def management_playbook(grade):
-    if grade == "A+":
-        return {
-            "Suggested Size": "Full Size",
-            "Trade Type": "High-conviction trend short",
-            "Patience Level": "High",
-            "Tolerance for Chop": "High",
-            "Management Style": "Be patient and let the trade work. Avoid reacting to normal noise too early.",
-            "Exit Playbook": "Stay in until there is a true direction change. A meaningful loss of 15m VX/VIX strength or ES reclaiming the rejection area is a stronger exit signal.",
-            "Breakeven Rule": "Do not move to breakeven too early. Let price get about +10 points in your favor and hold before moving stop to entry."
-        }
-    if grade == "A":
-        return {
-            "Suggested Size": "Near Full Size",
-            "Trade Type": "Strong short setup",
-            "Patience Level": "Medium-High",
-            "Tolerance for Chop": "Medium",
-            "Management Style": "Give the trade room, but be more alert than with A+ setups.",
-            "Exit Playbook": "Hold for follow-through, but tighten attention if 15m VX/VIX loses support or ES starts reclaiming the rejected level.",
-            "Breakeven Rule": "Move to breakeven after solid follow-through, not immediately on the first small push."
-        }
-    if grade == "B":
-        return {
-            "Suggested Size": "Size Down",
-            "Trade Type": "Tactical short / quick scalp",
-            "Patience Level": "Medium-Low",
-            "Tolerance for Chop": "Low",
-            "Management Style": "Treat this as a more tactical trade. If price stalls and does not move in your favor, tighten risk faster.",
-            "Exit Playbook": "Take quicker trims. If VX starts to weaken even slightly or ES cannot extend lower, reduce or exit.",
-            "Breakeven Rule": "Move stops closer sooner than an A setup. Do not give it too much room if momentum is not there."
-        }
-    if grade == "C":
-        return {
-            "Suggested Size": "Very Small Size or Pass",
-            "Trade Type": "Scalp only",
-            "Patience Level": "Low",
-            "Tolerance for Chop": "Very Low",
-            "Management Style": "Little tolerance for hesitation. This is not a trade to sit through if it does not move quickly.",
-            "Exit Playbook": "Exit fast if there is no immediate downside response. Treat it like a scalp, not a swing idea.",
-            "Breakeven Rule": "Use tight management. Consider getting risk reduced quickly if price hesitates."
-        }
-    return {
-        "Suggested Size": "No Size",
-        "Trade Type": "No trade",
-        "Patience Level": "None",
-        "Tolerance for Chop": "None",
-        "Management Style": "Stand aside.",
-        "Exit Playbook": "No trade should be taken.",
-        "Breakeven Rule": "Not applicable."
-    }
-
-
-if st.button("Grade Trade Setup"):
-    grade, verdict, explanation, confidence = grade_trade(vx_4h, vx_15m, sox_status, es_rejection)
-    take_signal, take_reason = take_decision(grade, confidence)
-    playbook = management_playbook(grade)
-
-    st.session_state.current_log_entry = {
-        "4H VX/VIX": vx_4h,
-        "15m VX/VIX": vx_15m,
-        "SOX": sox_status,
-        "ES Rejection": es_rejection,
-        "Grade": grade,
-        "Confidence": confidence,
-        "Take Signal": take_signal,
-        "Suggested Size": playbook["Suggested Size"],
-        "Trade Type": playbook["Trade Type"],
-        "Journal Notes": journal_notes
-    }
-
-    st.markdown("---")
-
-    st.markdown(
-        f"""
-        <div class="grade-box">
-            <div class="summary-title">Trade Grade</div>
-            <div class="summary-text">This setup receives a grade of <strong>{grade}</strong>.</div>
-        </div>
-        """,
-        unsafe_allow_html=True
+    return GradeOutput(
+        grade=grade,
+        score=score,
+        summary=summary,
+        stop_plan=pb["stop_plan"],
+        management=pb["management"],
     )
 
-    m1, m2, m3, m4 = st.columns(4)
 
-    with m1:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="metric-title">Grade</div>
-                <div class="metric-value">{grade}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
 
-    with m2:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="metric-title">Confidence Score</div>
-                <div class="metric-value">{confidence}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+def score_long_setup(inputs: TradeInputs) -> GradeOutput:
+    score = 0
+    reasons = []
 
-    with m3:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="metric-title">Take / No-Take</div>
-                <div class="metric-value" style="font-size:20px;">{take_signal}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    if not inputs.vx_4h_above_cloud:
+        score += 1
+        reasons.append("4H VX below EMA clouds")
+    if not inputs.vx_15m_above_cloud:
+        score += 1
+        reasons.append("15m VX below EMA clouds")
+    if inputs.sox_strong:
+        score += 1
+        reasons.append("SOX strong")
+    if inputs.es_holding_above_trend:
+        score += 2
+        reasons.append("ES holding above trend")
 
-    with m4:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="metric-title">Suggested Size</div>
-                <div class="metric-value" style="font-size:20px;">{playbook["Suggested Size"]}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    if inputs.sox_weak:
+        score -= 2
+        reasons.append("SOX weak against long thesis")
+    if inputs.es_rejecting_trend:
+        score -= 2
+        reasons.append("ES rejecting trend")
+    if inputs.price_stalling:
+        score -= 1
+        reasons.append("Price stalling")
+    if inputs.vx_flipping_against_thesis:
+        score -= 1
+        reasons.append("VX pressure rising against long thesis")
 
-    st.markdown(
-        f"""
-        <div class="summary-box">
-            <div class="summary-title">Verdict</div>
-            <div class="summary-text">{verdict}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
+    grade = clamp_grade(max(0, min(score, 5)))
+    pb = LONG_PLAYBOOK[grade]
+    summary = ", ".join(reasons) if reasons else "No strong long signals yet"
+
+    return GradeOutput(
+        grade=grade,
+        score=score,
+        summary=summary,
+        stop_plan=pb["stop_plan"],
+        management=pb["management"],
     )
 
+
+
+def grade_badge(label: str, grade: str) -> str:
+    color = GRADE_COLORS.get(grade, "#6b7280")
+    return f'''
+    <div style="padding:12px 16px;border-radius:14px;background:{color};color:white;font-weight:700;font-size:20px;text-align:center;">
+        {label}: {grade}
+    </div>
+    '''
+
+
+
+def render_trade_grade_card(title: str, output: GradeOutput):
+    color = GRADE_COLORS.get(output.grade, "#6b7280")
     st.markdown(
-        f"""
-        <div class="summary-box">
-            <div class="summary-title">Why</div>
-            <div class="summary-text">{explanation}</div>
+        f'''
+        <div style="border:1px solid #e5e7eb;border-radius:18px;padding:16px 18px;margin-bottom:14px;">
+            <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:{color};color:white;font-weight:700;margin-bottom:10px;">
+                {title}: {output.grade}
+            </div>
+            <div style="font-size:15px;margin-bottom:8px;"><strong>Why:</strong> {output.summary}</div>
+            <div style="font-size:15px;margin-bottom:8px;"><strong>Stop suggestion:</strong> {output.stop_plan}</div>
+            <div style="font-size:15px;"><strong>Framework:</strong> {SHORT_PLAYBOOK[output.grade]['summary'] if 'Short' in title else LONG_PLAYBOOK[output.grade]['summary']}</div>
         </div>
-        """,
-        unsafe_allow_html=True
+        ''',
+        unsafe_allow_html=True,
     )
 
-    st.markdown(
-        f"""
-        <div class="summary-box">
-            <div class="summary-title">Take / No-Take Reasoning</div>
-            <div class="summary-text">{take_reason}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    for item in output.management:
+        st.write(f"• {item}")
 
-    p1, p2 = st.columns(2)
 
-    with p1:
-        st.markdown(
-            f"""
-            <div class="summary-box">
-                <div class="summary-title">Management Playbook</div>
-                <div class="summary-text">
-                    <strong>Trade Type:</strong> {playbook["Trade Type"]}<br><br>
-                    <strong>Management Style:</strong> {playbook["Management Style"]}<br><br>
-                    <strong>Patience Level:</strong> {playbook["Patience Level"]}<br><br>
-                    <strong>Tolerance for Chop:</strong> {playbook["Tolerance for Chop"]}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
 
-    with p2:
-        st.markdown(
-            f"""
-            <div class="summary-box">
-                <div class="summary-title">Exit and Risk Playbook</div>
-                <div class="summary-text">
-                    <strong>Exit Playbook:</strong> {playbook["Exit Playbook"]}<br><br>
-                    <strong>Breakeven Rule:</strong> {playbook["Breakeven Rule"]}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+def render_trade_grading_panel():
+    st.subheader("Trade Grading Framework")
+    st.caption("Separate grades for shorts and longs, with color-coded trade quality and stop guidance.")
 
-if "current_log_entry" in st.session_state:
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Save Trade Log"):
-            st.session_state.trade_log.append(st.session_state.current_log_entry.copy())
-            st.success("Trade log saved.")
+        vx_4h_above_cloud = st.toggle("4H VX above EMA clouds", value=True)
+        vx_15m_above_cloud = st.toggle("15m VX above EMA clouds", value=True)
+        sox_weak = st.toggle("SOX weak", value=True)
+        sox_strong = st.toggle("SOX strong", value=False)
 
     with col2:
-        if st.session_state.trade_log:
-            log_df = pd.DataFrame(st.session_state.trade_log)
-            csv = log_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="Export Trade Log to CSV",
-                data=csv,
-                file_name="sitco_trade_log.csv",
-                mime="text/csv"
-            )
+        es_rejecting_trend = st.toggle("ES rejecting trend", value=True)
+        es_holding_above_trend = st.toggle("ES holding above trend", value=False)
+        price_stalling = st.toggle("Price stalling", value=False)
+        vx_flipping_against_thesis = st.toggle("VX flipping against thesis", value=False)
 
-if st.session_state.trade_log:
-    st.markdown("### Saved Trade Log")
-    log_df = pd.DataFrame(st.session_state.trade_log)
-    st.dataframe(log_df, use_container_width=True)
+    inputs = TradeInputs(
+        vx_4h_above_cloud=vx_4h_above_cloud,
+        vx_15m_above_cloud=vx_15m_above_cloud,
+        sox_weak=sox_weak,
+        sox_strong=sox_strong,
+        es_rejecting_trend=es_rejecting_trend,
+        es_holding_above_trend=es_holding_above_trend,
+        price_stalling=price_stalling,
+        vx_flipping_against_thesis=vx_flipping_against_thesis,
+    )
+
+    short_output = score_short_setup(inputs)
+    long_output = score_long_setup(inputs)
+
+    st.markdown("### Grades")
+    g1, g2 = st.columns(2)
+    with g1:
+        st.markdown(grade_badge("Short Setup", short_output.grade), unsafe_allow_html=True)
+    with g2:
+        st.markdown(grade_badge("Long Setup", long_output.grade), unsafe_allow_html=True)
+
+    st.markdown("### Trade Guidance")
+    left, right = st.columns(2)
+    with left:
+        render_trade_grade_card("Short Setup", short_output)
+    with right:
+        render_trade_grade_card("Long Setup", long_output)
+
+
+# Example usage inside your Streamlit app:
+# from trade_grading_framework import render_trade_grading_panel
+# render_trade_grading_panel()
